@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from services.sftp_service import download_from_server
+from services.sftp_service import download_from_server, upload_to_server
 from fastapi.responses import Response
 from typing import List, Optional
 import os
 from dotenv import load_dotenv
+from fastapi import UploadFile, File, Form
+from fastapi.responses import JSONResponse
+import zipfile
+from io import BytesIO
 
 load_dotenv()  # carga variables del .env
 
@@ -23,7 +27,7 @@ class ServerRequest(BaseModel):
     port: Optional[int] = None
     conn_type: Optional[str] = "sftp"
 
-@app.post("/servercopy")
+@app.post("/download")
 async def server_copy(request: ServerRequest):
     try:
         download_path = os.path.join(BASE_DOWNLOAD_PATH, os.path.basename(request.destination_folder))
@@ -45,5 +49,68 @@ async def server_copy(request: ServerRequest):
         zip_buffer.seek(0)
         return Response(content=zip_buffer.read(), media_type="application/zip", headers=headers)
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload")
+async def upload_files(
+    host: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    remote_directory: str = Form(...),
+    conn_type: Optional[str] = Form("sftp"),
+    port: Optional[int] = Form(None),
+    extract_zip: Optional[bool] = Form(False),
+    files: List[UploadFile] = File(...),
+):
+    """Receive one or more files and forward them to the remote SFTP/FTPS server.
+
+    Form fields:
+    - `host`, `username`, `password`, `remote_directory`, `conn_type` (sftp|ftps), `port`, `extract_zip`
+    - `files`: one or more file parts. If `extract_zip` is true and a single zip is provided, its contents are uploaded preserving paths.
+    """
+    try:
+        to_upload = []  # List[Tuple[relative_path, bytes]]
+
+        # If user uploaded one ZIP and requested extraction, extract in-memory
+        if extract_zip and len(files) == 1 and files[0].filename.lower().endswith(".zip"):
+            content = await files[0].read()
+            with zipfile.ZipFile(BytesIO(content)) as z:
+                for member in z.namelist():
+                    # Normalize and prevent traversal
+                    norm = os.path.normpath(member).lstrip("\\/")
+                    if norm == "" or norm.startswith(".."):
+                        continue
+                    if member.endswith("/"):
+                        continue
+                    data = z.read(member)
+                    to_upload.append((norm.replace("\\", "/"), data))
+        else:
+            for upload in files:
+                filename = upload.filename or "uploaded_file"
+                norm = os.path.normpath(filename)
+                if os.path.isabs(norm) or norm.startswith(".."):
+                    raise HTTPException(status_code=400, detail=f"Invalid filename in upload: {filename}")
+                data = await upload.read()
+                # use posix-style paths for remote
+                rel = norm.replace("\\", "/")
+                to_upload.append((rel, data))
+
+        # Call service to upload to remote server
+        uploaded = upload_to_server(
+            host=host,
+            username=username,
+            password=password,
+            remote_directory=remote_directory,
+            files=to_upload,
+            port=port,
+            conn_type=conn_type,
+        )
+
+        return JSONResponse(content={"uploaded": uploaded})
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

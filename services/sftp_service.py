@@ -6,6 +6,8 @@ from typing import List
 
 import paramiko
 from ftplib import FTP_TLS
+import posixpath
+from typing import Tuple
 
 def download_from_server(host: str, username: str, password: str, directory: str,
                          download_path: str, filename_startswith: List[str] = None,
@@ -77,3 +79,121 @@ def download_from_server(host: str, username: str, password: str, directory: str
 
     zip_buffer.seek(0)
     return zip_buffer
+
+
+def upload_to_server(host: str, username: str, password: str, remote_directory: str,
+                     files: List[Tuple[str, bytes]], port: int = None, conn_type: str = "sftp") -> List[str]:
+    """Upload a list of (relative_path, bytes_content) to the remote server under `remote_directory`.
+
+    Returns list of remote paths uploaded.
+    """
+    uploaded = []
+    # Ensure remote_directory is posix-style
+    remote_base = remote_directory or "."
+
+    if conn_type.lower() == "ftps":
+        port = port or 990
+        ftps = FTP_TLS()
+        ftps.connect(host, port, timeout=30)
+        ftps.auth()
+        ftps.login(username, password)
+        ftps.prot_p()
+
+        # Helper to create nested dirs on FTPS
+        def ensure_dir(path: str):
+            # change to base first
+            try:
+                ftps.cwd(remote_base)
+            except Exception:
+                # try to create base
+                try:
+                    ftps.mkd(remote_base)
+                    ftps.cwd(remote_base)
+                except Exception:
+                    pass
+            parts = [p for p in path.split("/") if p]
+            for p in parts:
+                try:
+                    ftps.cwd(p)
+                except Exception:
+                    try:
+                        ftps.mkd(p)
+                        ftps.cwd(p)
+                    except Exception:
+                        # if still failing, raise
+                        raise
+            # go back to root of base
+            ftps.cwd(remote_base)
+
+        for relpath, content in files:
+            # normalize to posix
+            relposix = posixpath.normpath(relpath).lstrip("/")
+            if relposix == "" or relposix.startswith(".."):
+                continue
+            remote_path = posixpath.join(remote_base, relposix)
+            remote_dir = posixpath.dirname(remote_path)
+            # Ensure remote_dir exists
+            if remote_dir and remote_dir != ".":
+                ensure_dir(remote_dir)
+
+            # storbinary expects a file-like object
+            from io import BytesIO
+            bio = BytesIO(content)
+            # Navigate to remote_dir then storbinary with filename
+            try:
+                ftps.cwd(remote_dir or remote_base)
+            except Exception:
+                # ensure and retry
+                ensure_dir(remote_dir)
+                ftps.cwd(remote_dir or remote_base)
+
+            with bio:
+                ftps.storbinary(f"STOR {posixpath.basename(remote_path)}", bio)
+
+            uploaded.append(remote_path)
+
+        ftps.quit()
+
+    elif conn_type.lower() == "sftp":
+        port = port or 22
+        transport = paramiko.Transport((host, port))
+        transport.connect(username=username, password=password)
+        client = paramiko.SFTPClient.from_transport(transport)
+
+        # ensure remote directory exists (posix)
+        def ensure_remote_dirs(path: str):
+            parts = [p for p in path.split("/") if p]
+            cur = ""
+            for p in parts:
+                cur = posixpath.join(cur, p) if cur else p
+                try:
+                    client.stat(cur)
+                except IOError:
+                    try:
+                        client.mkdir(cur)
+                    except Exception:
+                        # Could be created concurrently; ignore
+                        pass
+
+        for relpath, content in files:
+            relposix = posixpath.normpath(relpath).lstrip("/")
+            if relposix == "" or relposix.startswith(".."):
+                continue
+            remote_path = posixpath.join(remote_base, relposix)
+            remote_dir = posixpath.dirname(remote_path)
+            if remote_dir and remote_dir != ".":
+                ensure_remote_dirs(remote_dir)
+
+            # write bytes to remote file
+            with client.open(remote_path, "wb") as f:
+                f.write(content)
+
+            uploaded.append(remote_path)
+
+        client.close()
+        transport.close()
+
+    else:
+        raise ValueError("conn_type must be 'sftp' or 'ftps'")
+
+    return uploaded
