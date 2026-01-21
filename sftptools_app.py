@@ -9,6 +9,9 @@ from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 import zipfile
 from io import BytesIO
+import smtplib
+from email.message import EmailMessage
+import ssl
 
 load_dotenv()  # carga variables del .env
 
@@ -26,6 +29,24 @@ class ServerRequest(BaseModel):
     from_date: Optional[str] = ""
     port: Optional[int] = None
     conn_type: Optional[str] = "sftp"
+
+class SMTPConfig(BaseModel):
+    host: str
+    port: int
+    user: str
+    password: str
+    use_tls: bool
+
+class MailData(BaseModel):
+    sender: str
+    recipient: str
+    subject: str
+    body: str
+    html: bool = False
+
+class SendMailRequest(BaseModel):
+    smtp: SMTPConfig
+    mail: MailData
 
 @app.post("/download")
 async def server_copy(request: ServerRequest):
@@ -112,5 +133,33 @@ async def upload_files(
 
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/send-email")
+def send_email(data: SendMailRequest):
+    try:
+        msg = EmailMessage()
+        msg["From"] = data.mail.sender
+        msg["To"] = data.mail.recipient
+        msg["Subject"] = data.mail.subject
+
+        if data.mail.html:
+            msg.add_alternative(data.mail.body, subtype="html")
+        else:
+            msg.set_content(data.mail.body)
+
+        context = ssl.create_default_context()
+
+        with smtplib.SMTP(data.smtp.host, data.smtp.port) as server:
+            if data.smtp.use_tls:
+                server.starttls(context=context)
+
+            server.login(data.smtp.user, data.smtp.password)
+            server.send_message(msg)
+
+        return {"success": True}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
