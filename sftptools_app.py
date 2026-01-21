@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from services.sftp_service import download_from_server, upload_to_server
@@ -163,3 +164,16 @@ def send_email(data: SendMailRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+try:
+    from services import ftp_rest as _ftp_rest
+    # Include the router so routes appear in the main app's docs under the prefix /ftp
+    if hasattr(_ftp_rest, "router"):
+        app.include_router(_ftp_rest.router, prefix="/ftp")
+    else:
+        # fallback to mount the sub-app if router not present
+        app.mount("/ftp", _ftp_rest.app)
+except Exception:
+    # If import fails, keep the original app functional; import errors will surface at runtime.
+    pass
