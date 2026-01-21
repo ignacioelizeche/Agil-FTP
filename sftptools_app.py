@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from services.sftp_service import download_from_server, upload_to_server
