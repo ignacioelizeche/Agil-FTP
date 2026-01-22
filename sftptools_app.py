@@ -152,12 +152,19 @@ def send_email(data: SendMailRequest):
 
         context = ssl.create_default_context()
 
-        with smtplib.SMTP(data.smtp.host, data.smtp.port) as server:
-            if data.smtp.use_tls:
-                server.starttls(context=context)
+        # Puerto 465: SMTPS (SSL desde el inicio)
+        # Puerto 587: SMTP + STARTTLS
+        if data.smtp.port == 465:
+            with smtplib.SMTP_SSL(data.smtp.host, data.smtp.port, context=context) as server:
+                server.login(data.smtp.user, data.smtp.password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(data.smtp.host, data.smtp.port) as server:
+                if data.smtp.use_tls:
+                    server.starttls(context=context)
 
-            server.login(data.smtp.user, data.smtp.password)
-            server.send_message(msg)
+                server.login(data.smtp.user, data.smtp.password)
+                server.send_message(msg)
 
         return {"success": True}
 
