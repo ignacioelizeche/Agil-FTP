@@ -151,6 +151,9 @@ def send_email(data: SendMailRequest):
             msg.set_content(data.mail.body)
 
         context = ssl.create_default_context()
+        # Desactivar verificación de certificado para IPs sin coincidencia de dominio
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
 
         # Puerto 465: SMTPS (SSL desde el inicio)
         # Puerto 587: SMTP + STARTTLS
