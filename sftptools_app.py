@@ -12,6 +12,8 @@ from io import BytesIO
 import smtplib
 from email.message import EmailMessage
 import ssl
+import mimetypes
+import base64
 
 load_dotenv()  # carga variables del .env
 
@@ -37,12 +39,18 @@ class SMTPConfig(BaseModel):
     password: str
     use_tls: bool
 
+class Attachment(BaseModel):
+    filename: str
+    content: str  # base64 encoded
+
 class MailData(BaseModel):
     sender: str
+    sender_name: Optional[str] = None
     recipient: str
     subject: str
     body: str
     html: bool = False
+    attachments: Optional[List[Attachment]] = None
 
 class SendMailRequest(BaseModel):
     smtp: SMTPConfig
@@ -141,7 +149,11 @@ async def upload_files(
 def send_email(data: SendMailRequest):
     try:
         msg = EmailMessage()
-        msg["From"] = data.mail.sender
+        # Construir el header From con nombre si se proporciona
+        if data.mail.sender_name:
+            msg["From"] = f"{data.mail.sender_name} <{data.mail.sender}>"
+        else:
+            msg["From"] = data.mail.sender
         msg["To"] = data.mail.recipient
         msg["Subject"] = data.mail.subject
 
@@ -149,6 +161,37 @@ def send_email(data: SendMailRequest):
             msg.add_alternative(data.mail.body, subtype="html")
         else:
             msg.set_content(data.mail.body)
+
+        # Procesar y adjuntar archivos si existen
+        if data.mail.attachments:
+            for attachment in data.mail.attachments:
+                try:
+                    # Decodificar base64 con corrección de padding
+                    content = attachment.content
+                    # Agregar padding si es necesario (base64 debe ser múltiplo de 4)
+                    missing_padding = len(content) % 4
+                    if missing_padding:
+                        content += '=' * (4 - missing_padding)
+                    
+                    file_data = base64.b64decode(content)
+                    
+                    # Identificar tipo MIME basado en la extensión del archivo
+                    mime_type, _ = mimetypes.guess_type(attachment.filename)
+                    if mime_type is None:
+                        mime_type = "application/octet-stream"
+                    
+                    # Separar tipo y subtipo (ej: "image/png" -> "image", "png")
+                    maintype, subtype = mime_type.split("/", 1)
+                    
+                    # Adjuntar archivo
+                    msg.add_attachment(
+                        file_data,
+                        maintype=maintype,
+                        subtype=subtype,
+                        filename=attachment.filename
+                    )
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Error procesando archivo {attachment.filename}: {str(e)}")
 
         context = ssl.create_default_context()
         # Desactivar verificación de certificado para IPs sin coincidencia de dominio
@@ -171,6 +214,27 @@ def send_email(data: SendMailRequest):
 
         return {"success": True}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/file-to-base64")
+async def file_to_base64(file: UploadFile = File(...)):
+    """Convierte un archivo a base64 para usarlo en los adjuntos del email"""
+    try:
+        # Leer el contenido del archivo
+        content = await file.read()
+        
+        # Convertir a base64
+        base64_content = base64.b64encode(content).decode("utf-8")
+        
+        return {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(content),
+            "base64": base64_content
+        }
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
