@@ -1,6 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from services.ftp_manager import manager
@@ -57,8 +58,9 @@ def utilftpgetlistfiles(pid: int):
 @router.get("/utilftpgetfile/{pid}")
 def utilftpgetfile(pid: int, filename: str = Query(...)):
     try:
-        b64 = manager.utilftpgetfile(pid, filename)
-        return {"filename": filename, "base64": b64}
+        file_data = manager.utilftpgetfile(pid, filename)
+        return Response(content=file_data, media_type="application/octet-stream",
+                       headers={"Content-Disposition": f"attachment; filename={filename}"})
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")
     except FileNotFoundError:

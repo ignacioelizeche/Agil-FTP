@@ -101,7 +101,7 @@ class FTPTaskManager:
             raise KeyError("Process id not found")
         return task["files"]
 
-    def utilftpgetfile(self, pid: int, filename: str) -> str:
+    def utilftpgetfile(self, pid: int, filename: str) -> bytes:
         task = self._tasks.get(pid)
         if not task:
             raise KeyError("Process id not found")
@@ -110,7 +110,7 @@ class FTPTaskManager:
             raise FileNotFoundError("File not found in task")
         with open(file_path, "rb") as f:
             data = f.read()
-        return base64.b64encode(data).decode("ascii")
+        return data
 
     def utilftpgetdelete(self, pid: int) -> None:
         task = self._tasks.pop(pid, None)

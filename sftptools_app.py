@@ -218,27 +218,6 @@ def send_email(data: SendMailRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/file-to-base64")
-async def file_to_base64(file: UploadFile = File(...)):
-    """Convierte un archivo a base64 para usarlo en los adjuntos del email"""
-    try:
-        # Leer el contenido del archivo
-        content = await file.read()
-        
-        # Convertir a base64
-        base64_content = base64.b64encode(content).decode("utf-8")
-        
-        return {
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size": len(content),
-            "base64": base64_content
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 try:
     from services import ftp_rest as _ftp_rest
     # Include the router so routes appear in the main app's docs under the prefix /ftp
