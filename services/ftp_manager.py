@@ -67,6 +67,8 @@ class FTPTaskManager:
             port = options.get("port")
             conn_type = options.get("conn_type", "sftp")
 
+            logger.info("Starting download task %s to %s@%s:%s/%s", pid, username, host, port, directory)
+
             # Use existing download helper which writes files into the given download_path
             download_from_server(
                 host=host,
@@ -82,6 +84,7 @@ class FTPTaskManager:
 
             # List files recovered
             files = os.listdir(task["dir"]) if os.path.isdir(task["dir"]) else []
+            logger.info("Download task %s completed with %d files", pid, len(files))
             task["files"] = files
             task["status"] = "completed"
         except Exception as e:

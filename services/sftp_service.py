@@ -32,7 +32,10 @@ def download_from_server(host: str, username: str, password: str, directory: str
             mdtm = ftps.sendcmd(f"MDTM {f}")
             return datetime.strptime(mdtm[4:], "%Y%m%d%H%M%S")
 
-        download_func = lambda f, path: ftps.retrbinary(f"RETR {f}", open(path, "wb").write)
+        def download_func(f, path):
+            with open(path, "wb") as file:
+                ftps.retrbinary(f"RETR {f}", file.write)
+
         close_func = ftps.quit
 
     elif conn_type.lower() == "sftp":
