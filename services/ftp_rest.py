@@ -26,6 +26,13 @@ class ConnectionRequest(BaseModel):
     directory: Optional[str] = "."
     download_options: Optional[ConnectionOptions] = None
 
+class PIDRequest(BaseModel):
+    pid: int
+
+class FileRequest(BaseModel):
+    pid: int
+    filename: str
+
 
 @router.post("/utilftpget")
 def utilftpget(req: ConnectionRequest):
@@ -36,39 +43,45 @@ def utilftpget(req: ConnectionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/utilftpgetstatus/{pid}")
-def utilftpgetstatus(pid: int):
+@router.post("/utilftpgetstatus")
+def utilftpgetstatus(req: PIDRequest):
     try:
-        status = manager.utilftpgetstatus(pid)
-        return {"status": status}
+        status, error = manager.utilftpgetstatus(req.pid)
+        res = {"status": status}
+        if error:
+            res["error"] = error
+        return res
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")
 
 
-@router.get("/utilftpgetlistfiles/{pid}")
-def utilftpgetlistfiles(pid: int):
+@router.post("/utilftpgetlistfiles")
+def utilftpgetlistfiles(req: PIDRequest):
     try:
-        files = manager.utilftpgetlistfiles(pid)
+        files = manager.utilftpgetlistfiles(req.pid)
         return {"files": files}
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")
 
 
-@router.get("/utilftpgetfile/{pid}")
-def utilftpgetfile(pid: int, filename: str = Query(...)):
+@router.post("/utilftpgetfile")
+def utilftpgetfile(req: FileRequest):
     try:
-        b64 = manager.utilftpgetfile(pid, filename)
-        return {"filename": filename, "base64": b64}
+        b64 = manager.utilftpgetfile(req.pid, req.filename)
+        return {
+            "filename": req.filename,
+            "base64": b64
+        }
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found")
 
 
-@router.delete("/utilftpget/{pid}")
-def utilftpgetdelete(pid: int):
+@router.post("/utilftpgetdelete")
+def utilftpgetdelete(req: PIDRequest):
     try:
-        manager.utilftpgetdelete(pid)
+        manager.utilftpgetdelete(req.pid)
         return {"deleted": True}
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")

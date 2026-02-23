@@ -43,10 +43,11 @@ def download_from_server(host: str, username: str, password: str, directory: str
         archivos = client.listdir(directory)
 
         def get_mod_time(f):
-            attr = client.stat(os.path.join(directory, f))
+            path = posixpath.join(directory, f)
+            attr = client.stat(path)
             return datetime.fromtimestamp(attr.st_mtime)
 
-        download_func = lambda f, path: client.get(os.path.join(directory, f), path)
+        download_func = lambda f, path: client.get(posixpath.join(directory, f), path)
         close_func = lambda: (client.close(), transport.close())
 
     else:

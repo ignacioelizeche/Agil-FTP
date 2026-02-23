@@ -67,6 +67,8 @@ class FTPTaskManager:
             port = options.get("port")
             conn_type = options.get("conn_type", "sftp")
 
+            print(from_date)
+
             # Use existing download helper which writes files into the given download_path
             download_from_server(
                 host=host,
@@ -93,7 +95,7 @@ class FTPTaskManager:
         task = self._tasks.get(pid)
         if not task:
             raise KeyError("Process id not found")
-        return task["status"]
+        return task["status"], task["error"]
 
     def utilftpgetlistfiles(self, pid: int) -> List[str]:
         task = self._tasks.get(pid)
