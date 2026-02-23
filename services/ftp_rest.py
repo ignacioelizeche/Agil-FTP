@@ -65,12 +65,12 @@ def utilftpgetlistfiles(req: PIDRequest):
         raise HTTPException(status_code=404, detail="Process id not found")
 
 
-@router.post("/utilftpgetfile")
-def utilftpgetfile(req: FileRequest):
+@router.get("/utilftpgetfile/{pid}")
+def utilftpgetfile(pid: int, filename: str = Query(...)):
     try:
-        file_data = manager.utilftpgetfile(req.pid, req.filename)
+        file_data = manager.utilftpgetfile(pid, filename)
         return Response(content=file_data, media_type="application/octet-stream",
-                       headers={"Content-Disposition": f"attachment; filename={req.filename}"})
+                       headers={"Content-Disposition": f"attachment; filename={filename}"})
     except KeyError:
         raise HTTPException(status_code=404, detail="Process id not found")
     except FileNotFoundError:
