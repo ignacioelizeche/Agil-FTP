@@ -3,11 +3,14 @@ import zipfile
 from io import BytesIO
 from datetime import datetime
 from typing import List
+import logging
 
 import paramiko
 from ftplib import FTP_TLS
 import posixpath
 from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 def download_from_server(host: str, username: str, password: str, directory: str,
                          download_path: str, filename_startswith: List[str] = None,
@@ -16,17 +19,21 @@ def download_from_server(host: str, username: str, password: str, directory: str
     os.makedirs(download_path, exist_ok=True)
     seleccionados = []
 
+    logger.info("Starting download from %s (type: %s)", host, conn_type)
+
     if conn_type.lower() == "ftps":
         port = port or 990
         ftps = FTP_TLS()
-        # Igual que tu versión que funcionaba
+        logger.info("Connecting to FTPS %s:%s", host, port)
         ftps.connect(host, port, timeout=30)
-        ftps.auth()  # siempre
+        ftps.auth()
         ftps.login(username, password)
         ftps.prot_p()
         ftps.cwd(directory)
+        logger.info("Connected to FTPS, listing directory %s", directory)
 
         archivos = ftps.nlst()
+        logger.info("Found %d files in directory", len(archivos))
 
         def get_mod_time(f):
             mdtm = ftps.sendcmd(f"MDTM {f}")
@@ -36,14 +43,18 @@ def download_from_server(host: str, username: str, password: str, directory: str
             with open(path, "wb") as file:
                 ftps.retrbinary(f"RETR {f}", file.write)
 
-        close_func = ftps.quit
+        def close_func():
+            logger.info("Closing FTPS connection")
+            ftps.quit()
 
     elif conn_type.lower() == "sftp":
         port = port or 22
+        logger.info("Connecting to SFTP %s:%s", host, port)
         transport = paramiko.Transport((host, port))
         transport.connect(username=username, password=password)
         client = paramiko.SFTPClient.from_transport(transport)
         archivos = client.listdir(directory)
+        logger.info("Connected to SFTP, found %d files in directory", len(archivos))
 
         def get_mod_time(f):
             path = posixpath.join(directory, f)
@@ -51,12 +62,17 @@ def download_from_server(host: str, username: str, password: str, directory: str
             return datetime.fromtimestamp(attr.st_mtime)
 
         download_func = lambda f, path: client.get(posixpath.join(directory, f), path)
-        close_func = lambda: (client.close(), transport.close())
+
+        def close_func():
+            logger.info("Closing SFTP connection")
+            client.close()
+            transport.close()
 
     else:
         raise ValueError("conn_type debe ser 'sftp' o 'ftps'")
 
     # Filtrar archivos
+    logger.info("Filtering files (startswith: %s, from_date: %s)", filename_startswith, from_date)
     for archivo in archivos:
         if filename_startswith and not any(archivo.startswith(p) for p in filename_startswith):
             continue
@@ -64,24 +80,32 @@ def download_from_server(host: str, username: str, password: str, directory: str
             continue
         seleccionados.append(archivo)
 
+    logger.info("Selected %d files to download", len(seleccionados))
+
     if not seleccionados:
+        logger.warning("No files found matching criteria")
         close_func()
         raise Exception("No se encontraron archivos con los criterios dados")
 
     # Descargar archivos
-    for archivo in seleccionados:
+    logger.info("Starting file downloads")
+    for i, archivo in enumerate(seleccionados, 1):
+        logger.info("Downloading file %d/%d: %s", i, len(seleccionados), archivo)
         local_path = os.path.join(download_path, archivo)
         download_func(archivo, local_path)
 
+    logger.info("All files downloaded, closing connection")
     close_func()
 
     # Crear ZIP en memoria
+    logger.info("Creating ZIP archive")
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
         for archivo in seleccionados:
             zipf.write(os.path.join(download_path, archivo), arcname=archivo)
 
     zip_buffer.seek(0)
+    logger.info("Download complete, returning ZIP archive")
     return zip_buffer
 
 
